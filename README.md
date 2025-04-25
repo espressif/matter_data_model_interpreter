@@ -1,93 +1,94 @@
-# matter_data_model_interpreter
+# Matter Data Model Interpreter
 
+## Table of Contents
 
+- [What Does This Repository Contain?](#what-does-this-repository-contain)
+- [Current Use Cases](#current-use-cases)
+  - [Potential Use Cases](#potential-use-cases)
+- [How Do I Get Started?](#how-do-i-get-started)
+  - [Build a Matter Application for Espressif SoC](#build-a-matter-application-for-espressif-soc)
+  - [Run the `matter_data_model_serializer` only](#run-the-matter_data_model_serializer-only)
+- [How Does It Work?](#how-does-it-work)
+  - [Why Use Protobufs?](#why-use-protobufs)
+  - [Limitations](#limitations)
 
-## Getting started
+## What Does This Repository Contain?
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+This repository is home to:
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+1. **Data Model Serialization Tools:**  
+   A set of tools that serialize standard Matter data model formats (`.zap` and `.matter`) into a stream of function calls and encode them into a platform-agnostic *data model binary*.
 
-## Add your files
+2. ***Interpreter* ESP-IDF Component and esp-matter Example:**  
+   An IDF component and an esp-matter example that can read and interpret the *data model binary*, enabling you to build a Matter application independent of the data model and to flash the data model separately.
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+## Current Use Cases
 
+- **Decoupled Development:**  
+  It offers you the flexibility of developing your application once and iterating on the data model separately.
+
+- **Leverage ZAP Tool Capabilities:**  
+  esp-matter users can benefit from the modeling capabilities of the ZAP tool while still using esp-matter's dynamic data model.
+
+- **Espressif LowCode Solutions:**  
+  Espressif's [ExL (Hosted)](https://zerocode.espressif.com/exl) and [LowCode](https://github.com/espressif/esp-lowcode-matter) solutions use the Matter Data Model Interpreter.
+
+### Potential Use Cases
+
+- **Eliminate Code Generators:**  
+  Matter implementations in other languages can read and interpret the data model binary instead of using or implementing code generators for the data model.
+
+## How Do I Get Started?
+
+### Build a Matter Application for Espressif SoC
+
+Please refer to the [Quick Start Guide](docs/esp-quick-start-guide.md) for instructions on building a Matter application for Espressif SoC.
+
+### Run the `matter_data_model_serializer` Only
+
+For details on running just the serializer, see the [Serializer Only Guide](docs/run-serializer-only.md).
+
+## How Does It Work?
+
+1. The Matter data model is a well-defined hierarchical representation of a device, consisting of:
 ```
-cd existing_repo
-git remote add origin https://gitlab.espressif.cn:6688/app-frameworks/matter_data_model_interpreter.git
-git branch -M main
-git push -uf origin main
+Matter Device
+`-- Endpoint
+    |-- Device Types
+    `-- Clusters
+        |-- Attributes
+        |-- Commands
+        `-- Events
+```
+2. Assume that each of these can be created using a function call like:
+```c
+create_endpoint(endpoint_id);
+create_cluster(endpoint_id, cluster_id);
+...
 ```
 
-## Integrate with your tools
+3. The `matter_data_model_serializer` python tool converts a standard Matter data model (`.zap` or `.matter` file) into a serialized stream of such function calls (with parameters).
 
-- [ ] [Set up project integrations](https://gitlab.espressif.cn:6688/app-frameworks/matter_data_model_interpreter/-/settings/integrations)
+   - These calls are then encoded as protobuf messages and stored in a binary file using a `<length><value>` format.
 
-## Collaborate with your team
+   - This binary can be flashed or stored in a separate partition, entirely independent of the application.
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+4. The `esp_matter_data_model_interpreter` component (or equivalent) deserializes the binary and executes the function calls to initialize the Matter data model.
 
-## Test and Deploy
+### Why Use Protobufs?
+- **Platform Agnostic:**
+The data model binary is platform independent.
 
-Use the built-in continuous integration in GitLab.
+- **Language Flexibility:**
+Any language with a protobuf compiler can generate deserialization code, enabling broad interoperability.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+- **Space Efficiency:**
+Typical data model binary size is less than 5KB.
 
-***
+- **Compatibility and Extensibility:**
+Protobufs offer backward and forward compatibility friendliness, making future extensions straightforward.
 
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+### Limitations
+- **Parent Endpoint Information**
+Currently, the `.zap` to `.matter` conversion process doesn't preserve the parent endpoint information.
+Support for providing this information will be available in a future release.

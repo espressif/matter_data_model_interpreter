@@ -1,0 +1,3 @@
+version: "1.0.0"
+description: "ESP Matter Data Model Interpreter"
+url: https://github.com/espressif/matter_data_model_interpreter

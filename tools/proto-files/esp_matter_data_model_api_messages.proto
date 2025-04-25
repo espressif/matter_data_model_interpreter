@@ -1,0 +1,128 @@
+syntax = "proto2";
+
+package datamodel;
+
+// Enumeration for esp_matter_val_type_t
+enum EspMatterValType {
+  ESP_MATTER_VAL_TYPE_INVALID = 0;
+  ESP_MATTER_VAL_TYPE_BOOLEAN = 1;
+  ESP_MATTER_VAL_TYPE_INTEGER = 2;
+  ESP_MATTER_VAL_TYPE_FLOAT = 3;
+  ESP_MATTER_VAL_TYPE_ARRAY = 4;
+  ESP_MATTER_VAL_TYPE_CHAR_STRING = 5;
+  ESP_MATTER_VAL_TYPE_OCTET_STRING = 6;
+  ESP_MATTER_VAL_TYPE_INT8 = 7;
+  ESP_MATTER_VAL_TYPE_UINT8 = 8;
+  ESP_MATTER_VAL_TYPE_INT16 = 9;
+  ESP_MATTER_VAL_TYPE_UINT16 = 10;
+  ESP_MATTER_VAL_TYPE_INT32 = 11;
+  ESP_MATTER_VAL_TYPE_UINT32 = 12;
+  ESP_MATTER_VAL_TYPE_INT64 = 13;
+  ESP_MATTER_VAL_TYPE_UINT64 = 14;
+  ESP_MATTER_VAL_TYPE_ENUM8 = 15;
+  ESP_MATTER_VAL_TYPE_BITMAP8 = 16;
+  ESP_MATTER_VAL_TYPE_BITMAP16 = 17;
+  ESP_MATTER_VAL_TYPE_BITMAP32 = 18;
+  ESP_MATTER_VAL_TYPE_ENUM16 = 19;
+  ESP_MATTER_VAL_TYPE_LONG_CHAR_STRING = 20;
+  ESP_MATTER_VAL_TYPE_LONG_OCTET_STRING = 21;
+}
+
+// Protobuf equivalent for the esp_matter_val_t union
+message EspMatterVal {
+  oneof value {
+    bool b = 1;
+    int32 i = 2;
+    float f = 3;
+    int32 i8 = 4;
+    uint32 u8 = 5;
+    int32 i16 = 6;
+    uint32 u16 = 7;
+    int32 i32 = 8;
+    uint32 u32 = 9;
+    int64 i64 = 10;
+    uint64 u64 = 11;
+    EspMatterArray a = 12;  // Array structure
+    string char_string = 13;
+    bytes octet_string = 14;
+  }
+}
+
+// Message to represent an array
+message EspMatterArray {
+  optional bytes elements = 1;  // Represent array data as bytes
+  optional uint32 s = 2; // Data size
+  optional uint32 n = 3; // Data count
+  optional uint32 t = 4; // Total size
+}
+
+// Structure representing esp_matter_attr_val_t
+message EspMatterAttrVal {
+  optional EspMatterValType type = 1;
+  optional EspMatterVal val = 2;
+}
+
+message CreateAttributeParams {
+  optional uint32 endpoint_id = 1;
+  optional uint32 cluster_id = 2;
+  optional uint32 attribute_id = 3;
+  optional uint32 flags = 4;
+  optional EspMatterAttrVal val = 5;
+  optional uint32 max_val_size = 6;
+  optional EspMatterVal bounds_min = 7;
+  optional EspMatterVal bounds_max = 8;
+}
+
+message CreateCommandParams {
+  optional uint32 endpoint_id = 1;
+  optional uint32 cluster_id = 2;
+  optional uint32 command_id = 3;
+  optional uint32 flags = 4;
+}
+
+message CreateEventParams {
+  optional uint32 endpoint_id = 1;
+  optional uint32 cluster_id = 2;
+  optional uint32 event_id = 3;
+}
+
+message CreateClusterParams {
+  optional uint32 endpoint_id = 1;
+  optional uint32 cluster_id = 2;
+  optional uint32 flags = 3;
+}
+
+message CreateEndpointParams {
+  optional uint32 endpoint_id = 1;
+  optional uint32 flags = 2;
+  // optional bytes priv_data = 3; // Not needed as of now
+}
+
+message EndpointAddDeviceTypeParams {
+  optional uint32 endpoint_id = 1;
+  optional uint32 device_type_id = 2;
+  optional uint32 device_type_version = 3;
+}
+
+// Wrapper message to encapsulate function calls
+message FunctionCall {
+  enum FunctionType {
+    CREATE_ATTRIBUTE = 1;
+    CREATE_COMMAND = 2;
+    CREATE_EVENT = 3;
+    CREATE_CLUSTER = 4;
+    CREATE_ENDPOINT = 5;
+    ENDPOINT_ADD_DEVICE_TYPE = 6;
+  }
+
+  optional FunctionType function = 1;
+
+  oneof params {
+    CreateAttributeParams create_attribute_params = 2;
+    CreateCommandParams create_command_params = 3;
+    CreateEventParams create_event_params = 4;
+    CreateClusterParams create_cluster_params = 5;
+    CreateEndpointParams create_endpoint_params = 6;
+    EndpointAddDeviceTypeParams endpoint_add_device_type_params = 7;
+  }
+}
