@@ -67,13 +67,13 @@ create_cluster(endpoint_id, cluster_id);
 ...
 ```
 
-3. The `matter_data_model_serializer` python tool converts a standard Matter data model (`.zap` or `.matter` file) into a serialized stream of such function calls (with parameters).
+3. The `matter_data_model_serializer` python tool converts a standard Matter data model (`.zap` or `.matter` file) into a serialized stream of such logical function calls (with parameters).
 
-   - These calls are then encoded as protobuf messages and stored in a binary file using a `<length><value>` format.
+   - Each logical call (e.g. `create_endpoint`) is wrapped in a protobuf message. These messages are concatenated into a binary stream, each prefixed with its [varInt](https://protobuf.dev/programming-guides/encoding/#varints)‐length (<length><value>).
 
    - This binary can be flashed or stored in a separate partition, entirely independent of the application.
 
-4. The `esp_matter_data_model_interpreter` component (or equivalent) deserializes the binary and executes the function calls to initialize the Matter data model.
+4. The `esp_matter_data_model_interpreter` component (or equivalent) then reads, deserializes the binary, and dispatches each message to the appropriate function at runtime, to initialize the Matter data model.
 
 ### Why Use Protobufs?
 - **Platform Agnostic:**
