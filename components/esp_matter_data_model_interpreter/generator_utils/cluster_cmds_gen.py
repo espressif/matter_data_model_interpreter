@@ -133,7 +133,11 @@ ignore_clusters = [
     "Actions",
 ]
 
-ignore_commands = {"Level Control": ["MoveToClosestFrequency"], "Smoke CO Alarm": ["SelfTestRequest"], "Bridged Device Basic Information": ["KeepActive"]}
+ignore_commands = {
+    "Level Control": ["MoveToClosestFrequency"],
+    "Smoke CO Alarm": ["SelfTestRequest"],
+    "Bridged Device Basic Information": ["KeepActive"],
+}
 
 macro_dependent_clusters = {
     "ICD Management": "CONFIG_ENABLE_ICD_SERVER",
@@ -150,72 +154,81 @@ class Command:
         self.name_alnum = name_alnum
         self.id = id
         self.cb = cb
-        self.macro_dependency=macro_dependency
+        self.macro_dependency = macro_dependency
+
 
 class Cluster:
-    def __init__(
-        self, name, name_alnum, id, commands, init_fn, functions="nullptr", flag_mask="0", macro_dependency=""
-    ):
+    def __init__(self, name, name_alnum, id, commands, init_fn, macro_dependency=""):
         self.name = name
         self.name_alnum = name_alnum
         self.id = id
         self.commands = commands
         self.init_fn = init_fn
-        self.functions = functions
-        self.flag_mask = flag_mask
         self.macro_dependency = macro_dependency
+        self.functions_array_name = "nullptr"
+        self.flag_mask = "0"
 
 
 def get_cluster_from_xml(cluster_xml_file, config_yaml_file) -> Cluster:
-    cluster_dict = {}
     tree = ET.parse(cluster_xml_file)
     root = tree.getroot()
 
     with open(config_yaml_file, "r") as f:
         yaml_config_data = yaml.safe_load(f)
 
-    # Getting cluster name
     cluster = root.find("cluster")
     if cluster is not None:
         cluster_name = cluster.find("name").text
-        # Cluster name eventually used in the function and structure names in the code
         cluster_name_alnum = "".join(
             word[0].upper() + (word[1:].lower() if word[1:].isupper() else word[1:])
             for word in re.split(r"[ \_\-\\/]", cluster_name.strip())
         )
-        # Getting cluster ID
         cluster_id = cluster.find("code").text
+
+        # Filter based on maturity/ignore lists *before* deciding on init_fn or commands
+        if cluster.get("apiMaturity") in ["provisional", "internal"] or cluster_name in ignore_clusters:
+            # Skip cluster entirely if ignored or provisional/internal
+            return None
+
+        plugin_init_cb = f"CALL_ONCE(Matter{cluster_name_alnum}PluginServerInitCallback)"
 
         # Getting cluster commands
         commands = []
-        plugin_init_cb = "nullptr"
-        if (
-            cluster_name not in yaml_config_data["CommandHandlerInterfaceOnlyClusters"]
-            and cluster.get("apiMaturity") not in ["provisional", "internal"]
-            and cluster_name not in ignore_clusters
-            and cluster.find("command") is not None
-        ):
-            for command in cluster.findall("command"):
-                if (
-                    command.get("source") == "client"
-                    and command.get("apiMaturity") not in ["provisional", "internal"]
-                    and (
-                        cluster_name not in ignore_commands or command.get("name") not in ignore_commands[cluster_name]
-                    )
-                ):
-                    command_id = command.get("code")
-                    command_name = command.get("name")
-                    command_name_alnum = "".join(char for char in command_name if char.isalnum())
-                    command_cb = f"{cluster_name_alnum}{command_name_alnum}Callback"
-                    macro_dependency = ""
-                    if command_name in macro_dependent_commands:
-                        macro_dependency=macro_dependent_commands[command_name]
-                    commands.append(Command(command_name, command_name_alnum, command_id, command_cb, macro_dependency=macro_dependency))
-            plugin_init_cb = f"CALL_ONCE(Matter{cluster_name_alnum}PluginServerInitCallback)"
+        # Process commands ONLY IF the cluster is NOT listed in CommandHandlerInterfaceOnlyClusters
+        if cluster_name not in yaml_config_data.get("CommandHandlerInterfaceOnlyClusters", []):
+            if cluster.find("command") is not None:
+                for command in cluster.findall("command"):
+                    # Check command source and maturity, plus ignore list
+                    if (
+                        command.get("source") == "client"
+                        and command.get("apiMaturity") not in ["provisional", "internal"]
+                        and (
+                            cluster_name not in ignore_commands
+                            or command.get("name") not in ignore_commands.get(cluster_name, [])  # Safe get
+                        )
+                    ):
+                        command_id = command.get("code")
+                        command_name = command.get("name")
+                        command_name_alnum = "".join(char for char in command_name if char.isalnum())
+                        command_cb = f"{cluster_name_alnum}{command_name_alnum}Callback"
+                        macro_dependency = ""
+                        if command_name in macro_dependent_commands:
+                            macro_dependency = macro_dependent_commands[command_name]
+                        commands.append(
+                            Command(
+                                command_name,
+                                command_name_alnum,
+                                command_id,
+                                command_cb,
+                                macro_dependency=macro_dependency,
+                            )
+                        )
 
         macro_dependency = ""
         if cluster_name in macro_dependent_clusters.keys():
             macro_dependency = macro_dependent_clusters[cluster_name]
+
+        # Create the cluster object. 'functions' and 'flag_mask' will be added later.
         return Cluster(
             cluster_name, cluster_name_alnum, cluster_id, commands, plugin_init_cb, macro_dependency=macro_dependency
         )
@@ -224,33 +237,46 @@ def get_cluster_from_xml(cluster_xml_file, config_yaml_file) -> Cluster:
 
 
 def update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml_file):
-    # Getting flag_mask
     with open(config_yaml_file, "r") as f:
         yaml_config_data = yaml.safe_load(f)
 
-    functions = {
-        "ClustersWithInitFunctions": ["esp_matter::CLUSTER_FLAG_INIT_FUNCTION", "ClusterServerInitCallback"],
+    # Define the mapping between YAML list names, flag constants, and callback suffixes
+    function_types = {
+        "ClustersWithInitFunctions": ["esp_matter::CLUSTER_FLAG_INIT_FUNCTION", "ClusterServerInitCallback", "emberAf"],
         "ClustersWithAttributeChangedFunctions": [
             "esp_matter::CLUSTER_FLAG_ATTRIBUTE_CHANGED_FUNCTION",
             "ClusterServerAttributeChangedCallback",
+            "Matter",
         ],
         "ClustersWithShutdownFunctions": [
             "esp_matter::CLUSTER_FLAG_SHUTDOWN_FUNCTION",
             "ClusterServerShutdownCallback",
+            "Matter",
         ],
         "ClustersWithPreAttributeChangeFunctions": [
             "esp_matter::CLUSTER_FLAG_PRE_ATTRIBUTE_CHANGED_FUNCTION",
             "ClusterServerPreAttributeChangedCallback",
+            "Matter",
         ],
     }
 
-    if cluster.name not in yaml_config_data["CommandHandlerInterfaceOnlyClusters"]:
-        cluster.flag_mask = " | ".join(functions[fn][0] for fn in functions if cluster.name in yaml_config_data[fn])
-        cluster.ember_func_array = "\n\t".join(
-            f"(EmberAfGenericClusterFunction) {'emberAf' if fn == 'ClustersWithInitFunctions' else 'Matter'}{cluster.name_alnum}{functions[fn][1]},"
-            for fn in functions
-            if cluster.name in yaml_config_data[fn]
-        )
+    active_flags = []
+    function_pointers_str_list = []
+
+    for yaml_key, (flag, suffix, prefix) in function_types.items():
+        # Check if the cluster exists in the current list within the YAML data
+        if cluster.name in yaml_config_data.get(yaml_key, []):
+            active_flags.append(flag)
+            function_pointers_str_list.append(f"(EmberAfGenericClusterFunction) {prefix}{cluster.name_alnum}{suffix},")
+
+    cluster.flag_mask = " | ".join(active_flags) if active_flags else "0"
+
+    if function_pointers_str_list:
+        cluster.ember_func_array_content_str = "\n\t".join(function_pointers_str_list)
+        cluster.functions_array_name = f"chipFuncArray{cluster.name_alnum}Server"
+    else:
+        cluster.ember_func_array_content_str = ""
+        cluster.functions_array_name = "nullptr"
 
 
 def generate_callback_functions(clusters, file):
@@ -291,33 +317,57 @@ def generate_command_array(clusters, file):
 
 
 def generate_cluster_static_arrays(clusters, file):
+    generated_arrays = set()
     for cluster in clusters:
-        if hasattr(cluster, "ember_func_array") and cluster.ember_func_array:
-            ember_func_array = f"const EmberAfGenericClusterFunction chipFuncArray{cluster.name_alnum}Server[] = {{\n\t"
-            ember_func_array += cluster.ember_func_array
-            ember_func_array += "\n};\n"
-            file.write(ember_func_array)
+        array_name = getattr(cluster, "functions_array_name", "nullptr")
+        ember_func_array_content = getattr(cluster, "ember_func_array_content_str", "")
+
+        if array_name != "nullptr" and ember_func_array_content and array_name not in generated_arrays:
+            clean_content = ember_func_array_content.strip()
+            if clean_content.endswith(","):
+                ember_func_array_content = ember_func_array_content[: ember_func_array_content.rfind(",")]
+
+            ember_func_array_definition = f"const EmberAfGenericClusterFunction {array_name}[] = {{\n\t"
+            ember_func_array_definition += ember_func_array_content
+            ember_func_array_definition += "\n};\n"
+            file.write(ember_func_array_definition)
+            generated_arrays.add(array_name)
+
+            if cluster.macro_dependency:
+                file.write(f"#endif /* {cluster.macro_dependency} */\n")
 
 
 def generate_cluster_struct_arrays(clusters, file):
-    file.write("const ClusterTableMap_t cluster_cb_map[] = {")
-    for cluster in clusters:
-        if cluster.commands:
-            commands = f"&{cluster.name_alnum}AcceptedCommands"
-            num_cmds = f"sizeof({cluster.name_alnum}AcceptedCommands)"
-        else:
-            commands = "nullptr"
-            num_cmds = "0"
+    file.write("\nconst ClusterTableMap_t cluster_cb_map[] = {")
+    # Sorting clusters by ID for consistent output
+    clusters.sort(key=lambda c: int(c.id, 16))
 
-        if hasattr(cluster, "ember_func_array") and cluster.ember_func_array:
-            functions = f"chipFuncArray{cluster.name_alnum}Server"
-        else:
-            functions = "nullptr"
+    for cluster in clusters:
+        accepted_cmds_ptr = "nullptr"
+        num_cmds = 0
+        if cluster.commands:
+            cmd_array_name = f"{cluster.name_alnum}AcceptedCommands"
+            accepted_cmds_ptr = f"&{cmd_array_name}"
+            num_cmds = len(cluster.commands) + 1
+
+        functions_ptr = cluster.functions_array_name
+
+        mask = cluster.flag_mask
+        if not mask or mask == "0":
             mask = "0"
 
         if cluster.macro_dependency:
             file.write(f"\n#if {cluster.macro_dependency}")
-        file.write(cluster_table_map_instance_templ.format(cluster.id, cluster.init_fn, commands, num_cmds, functions, mask))
+
+        try:
+            formatted_entry = cluster_table_map_instance_templ.format(
+                cluster.id, cluster.init_fn, accepted_cmds_ptr, num_cmds, functions_ptr, mask
+            )
+            file.write(formatted_entry)
+        except Exception as fmt_err:
+            print(f"ERROR formatting entry for cluster {cluster.id}: {fmt_err}", file=sys.stderr)
+            file.write(f"\n    #error GENERATING ENTRY for cluster {cluster.id}\n")
+
         if cluster.macro_dependency:
             file.write(f"\n#endif /* {cluster.macro_dependency} */")
     file.write("\n};\n")
@@ -357,15 +407,24 @@ for filename in os.listdir(xml_dir):
             update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml)
             clusters.append(cluster)
 
-parser = argparse.ArgumentParser(description="Generate Matter command routines file.")
-parser.add_argument("-o", "--output_file", required=True, help="File path where the output will be written")
-args = parser.parse_args()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate Matter command routines file.")
+    parser.add_argument("-o", "--output_file", required=True, help="File path where the output will be written")
+    args = parser.parse_args()
 
-with open(args.output_file, "w") as file:
-    file.write(static_text_file_preface)
-    generate_callback_functions(clusters, file)
-    generate_command_array(clusters, file)
-    generate_cluster_static_arrays(clusters, file)
-    generate_cluster_struct_arrays(clusters, file)
-    file.write(static_text_register_command_cb_fn)
-    file.write(static_text_cluster_plugin_init_fn)
+    try:
+        with open(args.output_file, "w") as file:
+            file.write(static_text_file_preface)
+            generate_callback_functions(clusters, file)
+            generate_command_array(clusters, file)
+            generate_cluster_static_arrays(clusters, file)  # Define the arrays first
+            generate_cluster_struct_arrays(clusters, file)  # THEN generate the map that uses them
+            file.write(static_text_register_command_cb_fn)
+            file.write(static_text_cluster_plugin_init_fn)
+        print(f"Successfully generated {args.output_file}")
+    except IOError as e:
+        print(f"Error writing to output file {args.output_file}: {e}")
+        exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred during file generation: {e}")
+        exit(1)
