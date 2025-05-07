@@ -69,15 +69,15 @@ def run_generate_script(zap_dest: Path, out_dir: Path, chip_sdk_root: Path):
         sys.path.pop(0)
 
 
-def ensure_attribute_files(chip_sdk_root: Path, output_csv: Path, output_pickle: Path):
+def ensure_attribute_files(output_csv: Path, output_pickle: Path, chip_sdk_root: Path):
     """
     Ensure that the specified output_csv and output_pickle files exist.
     If they do not exist, attempt to generate them using XMLs from chip_sdk_root.
 
     Args:
-        chip_sdk_root (Path): The root directory containing the attribute data.
         output_csv (Path): The path where the CSV file should be located.
         output_pickle (Path): The path where the pickle file should be located.
+        chip_sdk_root (Path): The root directory containing the attribute data.
 
     Returns:
         bool: True if both files exist after the attempt, False otherwise.
@@ -96,16 +96,47 @@ def ensure_attribute_files(chip_sdk_root: Path, output_csv: Path, output_pickle:
     return check_files_exist([output_csv, output_pickle])
 
 
-def run_linter(idl_path: Path):
+def run_linter(idl_path: Path, chip_sdk_root: Path) -> None:
+    """
+    Invoke the Matter IDL linter, using either the legacy `idl_lint` module
+    or the new `matter-idl-lint` CLI.
+
+    Args:
+        idl_path (Path):      Path to the `.matter` file to lint.
+        chip_sdk_root (Path): Path to the repo root (where `.matterlint` lives).
+
+    The function will:
+      1. Try importing and running `idl_lint.main()`.
+      2. On ImportError, fall back to `matter.idl.lint.main()`,
+         automatically pointing `--rules` at chip_sdk_root/.matterlint.
+    """
+    # 1) Attempt the legacy linter
     try:
         import idl_lint
-    except ImportError as e:
-        print(f"Error importing idl_lint: {e}")
-        sys.exit(1)
+
+        linter_main = idl_lint.main
+        script_name = "idl_lint.py"
+        cli_args = []  # legacy linter already knows where its rules live
+    except ImportError:
+        # 2) Fallback to the newer CLI
+        try:
+            from matter.idl.lint import main as linter_main
+
+            script_name = "matter-idl-lint"
+        except ImportError as e:
+            print(f"Error importing any linter backend: {e}")
+            sys.exit(1)
+
+        # Point `--rules` at the .matterlint file in the repo root
+        rules_file = chip_sdk_root / ".matterlint"
+        cli_args = ["--rules", str(rules_file)]
+
+    # Temporarily replace sys.argv so `matter-idl-lint` will parse our args
     original_argv = sys.argv
-    sys.argv = ["idl_lint.py", str(idl_path)]
+    sys.argv = [script_name, *cli_args, str(idl_path)]
+
     try:
-        idl_lint.main()
+        linter_main()
     except SystemExit as e:
         if e.code != 0:
             print(f"Linter exited with code: {e.code}")
@@ -114,6 +145,7 @@ def run_linter(idl_path: Path):
         print(f"An error occurred during linting: {e}")
         sys.exit(1)
     finally:
+        # Restore the original argv so we don’t pollute later code
         sys.argv = original_argv
 
 

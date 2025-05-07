@@ -121,10 +121,10 @@ def main():
     # Create the attribute_bounds files (for looking up attribute bounds)
     attr_csv = out_dir / "attribute_bounds.csv"
     attr_pickle = out_dir / "attribute_bounds.pkl"
-    ensure_attribute_files(chip_sdk_root, attr_csv, attr_pickle)
+    ensure_attribute_files(attr_csv, attr_pickle, chip_sdk_root)
 
     # Run the linter on the .matter file
-    run_linter(matter_file)
+    run_linter(matter_file, chip_sdk_root)
     json_file_path = sub_out_dir / (input_file.stem + ".json")
 
     # Pass attribute_bounds pickle file to create_json_data_model
