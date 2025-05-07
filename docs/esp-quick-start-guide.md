@@ -12,6 +12,7 @@ This guide explains how to build a Matter application for an Espressif SoC using
 
    > [!IMPORTANT]
    > Your data model must be created using the same Matter version that you intend to use in your application.
+
 2. **ESP-IDF Setup:**
    You have set up ESP-IDF and can build any standard esp-matter example (e.g., the [light example](https://github.com/espressif/esp-matter/tree/main/examples/light)).  
    If not, please follow the instructions at [ESP-Matter Development Guide](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html).  
@@ -19,6 +20,7 @@ This guide explains how to build a Matter application for an Espressif SoC using
    > [!NOTE]
    > The components and tools in this repository are designed to work with recent and future releases of Matter.  
    > It has been tested with [release/v1.4](https://github.com/espressif/esp-matter/tree/release/v1.4) and [release/v1.3](https://github.com/espressif/esp-matter/tree/release/v1.3) of `esp-matter`, corresponding to Matter 1.4 and 1.3 respectively.
+
 3. **Environment Configuration:**
    If you want to build a Matter application for an Espressif SoC, this repository assumes that you have exported the environment variable `$ESP_MATTER_PATH`.  
    To ensure this, follow the steps under "2.2.1.2 Configuring the Environment" in the [ESP-Matter documentation](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html#id2).
