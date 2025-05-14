@@ -169,19 +169,23 @@ class Cluster:
         self.flag_mask = "0"
 
 
-def get_cluster_from_xml(cluster_xml_file, config_yaml_file) -> Cluster:
+def get_clusters_from_xml(cluster_xml_file, config_yaml_file) -> list[Cluster]:
     tree = ET.parse(cluster_xml_file)
     root = tree.getroot()
+
+    clusters_list = [] # Initialize list
 
     with open(config_yaml_file, "r") as f:
         yaml_config_data = yaml.safe_load(f)
 
-    cluster = root.find("cluster")
-    if cluster is not None:
+    clusters = root.findall("cluster") # Find all clusters
+
+    # Loop through each cluster
+    for cluster in clusters:
         cluster_name = cluster.find("name").text
         cluster_name_alnum = "".join(
             word[0].upper() + (word[1:].lower() if word[1:].isupper() else word[1:])
-            for word in re.split(r"[ \_\-\\/]", cluster_name.strip())
+            for word in re.split(r"[ \_\-\\/.]", cluster_name.strip())
         )
         cluster_id = cluster.find("code").text
 
@@ -229,11 +233,14 @@ def get_cluster_from_xml(cluster_xml_file, config_yaml_file) -> Cluster:
             macro_dependency = macro_dependent_clusters[cluster_name]
 
         # Create the cluster object. 'functions' and 'flag_mask' will be added later.
-        return Cluster(
-            cluster_name, cluster_name_alnum, cluster_id, commands, plugin_init_cb, macro_dependency=macro_dependency
+        clusters_list.append(
+            Cluster(
+                cluster_name, cluster_name_alnum, cluster_id, commands, plugin_init_cb, macro_dependency=macro_dependency
+            )
         )
-    else:
-        return None
+
+    # Return the list of clusters
+    return clusters_list
 
 
 def update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml_file):
@@ -402,10 +409,12 @@ config_yaml = os.path.expandvars(
 clusters = []
 for filename in os.listdir(xml_dir):
     if filename.endswith(".xml"):
-        cluster = get_cluster_from_xml(os.path.join(xml_dir, filename), config_yaml)
-        if cluster:
-            update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml)
-            clusters.append(cluster)
+        # get_clusters_from_xml now returns a list of clusters
+        processed_clusters = get_clusters_from_xml(os.path.join(xml_dir, filename), config_yaml)
+        if processed_clusters:
+            for cluster in processed_clusters:
+                update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml)
+                clusters.append(cluster)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Matter command routines file.")
