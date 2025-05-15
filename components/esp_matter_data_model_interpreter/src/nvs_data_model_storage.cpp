@@ -38,7 +38,7 @@ esp_err_t NVSDataModelStorage::get_data_model(std::string_view key, std::vector<
 
     // Get the size of the blob.
     size_t size = 0;
-    err = handle->get_item_size(nvs::ItemType::BLOB_DATA, key.data(), size);
+    err = handle->get_item_size(nvs::ItemType::BLOB, key.data(), size);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         data.clear();
         return ESP_ERR_NVS_NOT_FOUND;
