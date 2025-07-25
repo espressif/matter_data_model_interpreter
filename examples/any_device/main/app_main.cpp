@@ -19,7 +19,7 @@
 
 #include <common_macros.h>
 #include <app_priv.h>
-#include <app_reset.h>
+
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
 #include <platform/ESP32/OpenthreadLauncher.h>
 #endif
@@ -155,10 +155,6 @@ extern "C" void app_main()
         ESP_LOGE(TAG, "Failed to initialize default NVS (%d)", err);
         return;
     }
-
-    /* Initialize driver */
-    app_driver_handle_t button_handle = app_driver_button_init();
-    app_reset_button_register(button_handle);
 
     attribute::set_callback(app_attribute_update_cb);
     identification::set_callback(app_identification_cb);
