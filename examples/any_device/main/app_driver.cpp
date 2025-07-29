@@ -9,7 +9,6 @@
 #include <inttypes.h>
 
 #include <esp_matter.h>
-#include "bsp/esp-bsp.h"
 
 #include <app_priv.h>
 
@@ -17,11 +16,6 @@ using namespace chip::app::Clusters;
 using namespace esp_matter;
 
 static const char *TAG = "app_driver";
-
-static void app_driver_button_toggle_cb(void *arg, void *data)
-{
-    ESP_LOGI(TAG, "Toggle button pressed");
-}
 
 esp_err_t app_driver_attribute_update(app_driver_handle_t driver_handle, uint16_t endpoint_id, uint32_t cluster_id,
                                       uint32_t attribute_id, esp_matter_attr_val_t *val)
@@ -89,14 +83,4 @@ esp_err_t app_driver_attribute_update(app_driver_handle_t driver_handle, uint16_
     }
 
     return err;
-}
-
-app_driver_handle_t app_driver_button_init()
-{
-    /* Initialize button */
-    button_handle_t btns[BSP_BUTTON_NUM];
-    ESP_ERROR_CHECK(bsp_iot_button_create(btns, NULL, BSP_BUTTON_NUM));
-    ESP_ERROR_CHECK(iot_button_register_cb(btns[0], BUTTON_PRESS_DOWN, app_driver_button_toggle_cb, NULL));
-
-    return (app_driver_handle_t)btns[0];
 }
