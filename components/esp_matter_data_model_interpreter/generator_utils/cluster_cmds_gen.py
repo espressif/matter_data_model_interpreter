@@ -3,6 +3,7 @@
 import argparse
 import os
 import re
+import sys
 import xml.etree.ElementTree as ET
 
 import yaml
@@ -169,71 +170,122 @@ class Cluster:
         self.flag_mask = "0"
 
 
-def get_cluster_from_xml(cluster_xml_file, config_yaml_file) -> Cluster:
+_WORD_SPLIT = re.compile(r"[ _\-/]")      #   / |_|-|\//
+_STRIP_CHARS = re.compile(r"[+\(\)&]")    #   chars removed before splitting
+_NON_ID = re.compile(r"[^A-Za-z0-9_]")  #   final identifier filter
+
+
+def to_camel_case(label: str, first_lower: bool) -> str:
+    """
+    Port of zap-templates/string.toCamelCase(label, firstLower).
+    """
+    cleaned = _STRIP_CHARS.sub("", label)
+    tokens = _WORD_SPLIT.split(cleaned)
+
+    def fix(tok: str, idx: int) -> str:
+        if not tok:
+            return tok
+        is_all_upper = tok.isupper()
+        head = tok[0].lower() if (idx == 0 and first_lower) else tok[0].upper()
+        tail = tok[1:].lower() if is_all_upper else tok[1:]
+        return head + tail
+
+    out = "".join(fix(t, i) for i, t in enumerate(tokens))
+
+    # Special single-word rule (identical to JS)
+    if first_lower:
+        if (not _WORD_SPLIT.search(label) and
+            len(label) > 1 and
+            label[:2].isupper() and
+            not label.isupper()):
+            out = out[0].upper() + out[1:]
+
+    return _NON_ID.sub("", out)
+
+
+def get_clusters_from_xml(cluster_xml_file, config_yaml_file) -> list[Cluster]:
     tree = ET.parse(cluster_xml_file)
     root = tree.getroot()
+
+    clusters_list = []  # Initialize list
 
     with open(config_yaml_file, "r") as f:
         yaml_config_data = yaml.safe_load(f)
 
-    cluster = root.find("cluster")
-    if cluster is not None:
-        cluster_name = cluster.find("name").text
-        cluster_name_alnum = "".join(
-            word[0].upper() + (word[1:].lower() if word[1:].isupper() else word[1:])
-            for word in re.split(r"[ \_\-\\/]", cluster_name.strip())
-        )
-        cluster_id = cluster.find("code").text
+    clusters = root.findall("cluster")  # Find all clusters
 
-        # Filter based on maturity/ignore lists *before* deciding on init_fn or commands
-        if cluster.get("apiMaturity") in ["provisional", "internal"] or cluster_name in ignore_clusters:
-            # Skip cluster entirely if ignored or provisional/internal
-            return None
+    # Loop through each cluster
+    for cluster in clusters:
+        if cluster is not None:
+            cluster_name = cluster.find("name").text
+            cluster_name_alnum = to_camel_case(cluster_name, first_lower=False)
+            cluster_id_tag = cluster.find("code")
+            if cluster_id_tag is None or not cluster_id_tag.text:
+                print(
+                    f"Warning: Cluster '{cluster_name}' in {cluster_xml_file} is missing a 'code' (ID) tag or it's empty. Skipping.",
+                    file=sys.stderr,
+                )
+                continue
+            cluster_id = cluster_id_tag.text
 
-        plugin_init_cb = f"CALL_ONCE(Matter{cluster_name_alnum}PluginServerInitCallback)"
+            # Filter based on maturity/ignore lists *before* deciding on init_fn or commands
+            if cluster.get("apiMaturity") in ["provisional", "internal"] or cluster_name in ignore_clusters:
+                # Skip cluster entirely if ignored or provisional/internal
+                continue
 
-        # Getting cluster commands
-        commands = []
-        # Process commands ONLY IF the cluster is NOT listed in CommandHandlerInterfaceOnlyClusters
-        if cluster_name not in yaml_config_data.get("CommandHandlerInterfaceOnlyClusters", []):
-            if cluster.find("command") is not None:
-                for command in cluster.findall("command"):
-                    # Check command source and maturity, plus ignore list
-                    if (
-                        command.get("source") == "client"
-                        and command.get("apiMaturity") not in ["provisional", "internal"]
-                        and (
-                            cluster_name not in ignore_commands
-                            or command.get("name") not in ignore_commands.get(cluster_name, [])  # Safe get
-                        )
-                    ):
-                        command_id = command.get("code")
-                        command_name = command.get("name")
-                        command_name_alnum = "".join(char for char in command_name if char.isalnum())
-                        command_cb = f"{cluster_name_alnum}{command_name_alnum}Callback"
-                        macro_dependency = ""
-                        if command_name in macro_dependent_commands:
-                            macro_dependency = macro_dependent_commands[command_name]
-                        commands.append(
-                            Command(
-                                command_name,
-                                command_name_alnum,
-                                command_id,
-                                command_cb,
-                                macro_dependency=macro_dependency,
+            plugin_init_cb = f"CALL_ONCE(Matter{cluster_name_alnum}PluginServerInitCallback)"
+
+            # Getting cluster commands
+            commands = []
+            # Process commands ONLY IF the cluster is NOT listed in CommandHandlerInterfaceOnlyClusters
+            if cluster_name not in yaml_config_data.get("CommandHandlerInterfaceOnlyClusters", []):
+                if cluster.find("command") is not None:
+                    for command in cluster.findall("command"):
+                        # Check command source and maturity, plus ignore list
+                        if (
+                            command.get("source") == "client"
+                            and command.get("apiMaturity") not in ["provisional", "internal"]
+                            and (
+                                cluster_name not in ignore_commands
+                                or command.get("name") not in ignore_commands.get(cluster_name, [])  # Safe get
                             )
-                        )
+                        ):
+                            command_id = command.get("code")
+                            command_name = command.get("name")
+                            command_name_alnum = "".join(char for char in command_name if char.isalnum())
+                            command_cb = f"{cluster_name_alnum}{command_name_alnum}Callback"
+                            macro_dependency = ""
+                            if command_name in macro_dependent_commands:
+                                macro_dependency = macro_dependent_commands[command_name]
+                            commands.append(
+                                Command(
+                                    command_name,
+                                    command_name_alnum,
+                                    command_id,
+                                    command_cb,
+                                    macro_dependency=macro_dependency,
+                                )
+                            )
 
-        macro_dependency = ""
-        if cluster_name in macro_dependent_clusters.keys():
-            macro_dependency = macro_dependent_clusters[cluster_name]
+            macro_dependency = ""
+            if cluster_name in macro_dependent_clusters.keys():
+                macro_dependency = macro_dependent_clusters[cluster_name]
 
-        # Create the cluster object. 'functions' and 'flag_mask' will be added later.
-        return Cluster(
-            cluster_name, cluster_name_alnum, cluster_id, commands, plugin_init_cb, macro_dependency=macro_dependency
-        )
-    else:
-        return None
+            # Create the cluster object. 'functions' and 'flag_mask' will be added later.
+            clusters_list.append(
+                Cluster(
+                    cluster_name,
+                    cluster_name_alnum,
+                    cluster_id,
+                    commands,
+                    plugin_init_cb,
+                    macro_dependency=macro_dependency,
+                )
+            )
+        else:
+            print(f"Warning: Encountered an unexpected None cluster_element in {cluster_xml_file}", file=sys.stderr)
+    # Return the list of clusters
+    return clusters_list
 
 
 def update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml_file):
@@ -282,10 +334,10 @@ def update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml_file):
 def generate_callback_functions(clusters, file):
     for cluster in clusters:
         if cluster.macro_dependency and cluster.commands:
-            file.write(f"#if {cluster.macro_dependency}")
+            file.write(f"\n#if {cluster.macro_dependency}")
         for command in cluster.commands:
             if command.macro_dependency:
-                file.write(f"#if {command.macro_dependency}")
+                file.write(f"\n#if {command.macro_dependency}")
             file.write(
                 command_callback_impl_templ.format(
                     command.cb, cluster.name_alnum, command.name_alnum, cluster.name_alnum, command.name_alnum
@@ -302,11 +354,11 @@ def generate_command_array(clusters, file):
         command_callback_map = ""
         if cluster.commands:
             if cluster.macro_dependency:
-                command_callback_map += f"#if {cluster.macro_dependency}\n"
+                command_callback_map += f"\n#if {cluster.macro_dependency}\n"
             command_callback_map += f"const CommandCallbackMap_t {cluster.name_alnum}AcceptedCommands[] = {{\n"
             for command in cluster.commands:
                 if command.macro_dependency:
-                    command_callback_map += f"#if {command.macro_dependency}\n"
+                    command_callback_map += f"\n#if {command.macro_dependency}\n"
                 command_callback_map += f"\t{{ {command.id}, {command.cb} }},\n"
                 if command.macro_dependency:
                     command_callback_map += f"#endif /* {command.macro_dependency} */\n"
@@ -373,44 +425,73 @@ def generate_cluster_struct_arrays(clusters, file):
     file.write("\n};\n")
 
 
-xml_dir = os.path.expandvars(
-    os.path.join(
-        "$ESP_MATTER_PATH",
-        "connectedhomeip",
-        "connectedhomeip",
-        "src",
-        "app",
-        "zap-templates",
-        "zcl",
-        "data-model",
-        "chip",
-    )
-)
-config_yaml = os.path.expandvars(
-    os.path.join(
-        "$ESP_MATTER_PATH",
-        "connectedhomeip",
-        "connectedhomeip",
-        "src",
-        "app",
-        "common",
-        "templates",
-        "config-data.yaml",
-    )
-)
-
-clusters = []
-for filename in os.listdir(xml_dir):
-    if filename.endswith(".xml"):
-        cluster = get_cluster_from_xml(os.path.join(xml_dir, filename), config_yaml)
-        if cluster:
-            update_cluster_flagmask_and_ember_fn_array(cluster, config_yaml)
-            clusters.append(cluster)
-
 if __name__ == "__main__":
+    default_xml_dir = os.path.expandvars(
+        os.path.join(
+            os.environ.get("ESP_MATTER_PATH"),
+            "connectedhomeip",
+            "connectedhomeip",
+            "src",
+            "app",
+            "zap-templates",
+            "zcl",
+            "data-model",
+            "chip",
+        )
+    )
+    default_config_yaml = os.path.expandvars(
+        os.path.join(
+            os.environ.get("ESP_MATTER_PATH"),
+            "connectedhomeip",
+            "connectedhomeip",
+            "src",
+            "app",
+            "common",
+            "templates",
+            "config-data.yaml",
+        )
+    )
+
     parser = argparse.ArgumentParser(description="Generate Matter command routines file.")
-    parser.add_argument("-o", "--output_file", required=True, help="File path where the output will be written")
+    parser.add_argument("-o", "--output_file", required=True, help="File path where the output file will be written")
+    parser.add_argument("-x", "--xml_dir", default=default_xml_dir, help="Directory containing Matter cluster XML definitions")
+    parser.add_argument("-c", "--config_yaml", default=default_config_yaml, help="Path to the config-data.yaml file")
     args = parser.parse_args()
+
+    if not os.path.isdir(args.xml_dir):
+        print(f"Error: XML directory not found: {args.xml_dir}", file=sys.stderr)
+        exit(1)
+    if not os.path.isfile(args.config_yaml):
+        print(f"Error: Config YAML not found: {args.config_yaml}", file=sys.stderr)
+        exit(1)
+
+    print(f"Using XML directory: {args.xml_dir}", file=sys.stderr)
+    print(f"Using config YAML: {args.config_yaml}", file=sys.stderr)
+    print(f"Output file: {args.output_file}", file=sys.stderr)
+
+    clusters = []
+    processed_cluster_ids = set()
+
+    for filename in sorted(os.listdir(args.xml_dir)):
+        if filename.endswith(".xml"):
+            file_path = os.path.join(args.xml_dir, filename)
+            try:
+                clusters_in_file = get_clusters_from_xml(file_path, args.config_yaml)
+                for cluster_obj in clusters_in_file:
+                    if cluster_obj:
+                        if cluster_obj.id not in processed_cluster_ids:
+                            update_cluster_flagmask_and_ember_fn_array(cluster_obj, args.config_yaml)
+                            clusters.append(cluster_obj)
+                            processed_cluster_ids.add(cluster_obj.id)
+                        else:
+                            print(
+                                f"Warning: Duplicate cluster ID {cluster_obj.id} encountered (from {filename}). Using first instance.",
+                                file=sys.stderr,
+                            )
+            except ET.ParseError as e:
+                print(f"Error parsing XML file {filename}: {e}", file=sys.stderr)
+            except Exception as e:
+                print(f"Error processing {filename}: {e}", file=sys.stderr)
 
     try:
         with open(args.output_file, "w") as file:
@@ -421,10 +502,10 @@ if __name__ == "__main__":
             generate_cluster_struct_arrays(clusters, file)  # THEN generate the map that uses them
             file.write(static_text_register_command_cb_fn)
             file.write(static_text_cluster_plugin_init_fn)
-        print(f"Successfully generated {args.output_file}")
+        print(f"Successfully generated {args.output_file}", file=sys.stderr)
     except IOError as e:
-        print(f"Error writing to output file {args.output_file}: {e}")
+        print(f"Error writing to output file {args.output_file}: {e}", file=sys.stderr)
         exit(1)
     except Exception as e:
-        print(f"An unexpected error occurred during file generation: {e}")
+        print(f"An unexpected error occurred during file generation: {e}", file=sys.stderr)
         exit(1)
