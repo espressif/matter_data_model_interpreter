@@ -65,7 +65,7 @@ command_callback_impl_templ = """
 static esp_err_t {}(const ConcreteCommandPath &command_path, TLVReader &tlv_data, void *opaque_ptr)
 {{
     chip::app::Clusters::{}::Commands::{}::DecodableType command_data;
-    CHIP_ERROR error = Decode(tlv_data, command_data);
+{}
     if (error == CHIP_NO_ERROR) {{
         emberAf{}Cluster{}Callback((CommandHandler *)opaque_ptr, command_path, command_data);
     }}
@@ -131,7 +131,8 @@ cluster_table_map_instance_templ = """
     }},"""
 
 ignore_clusters = [
-    "Actions",
+    "Commodity Tariff",
+    "Commodity Metering",
 ]
 
 ignore_commands = {
@@ -150,12 +151,13 @@ macro_dependent_commands = {
 
 
 class Command:
-    def __init__(self, name, name_alnum, id, cb, macro_dependency=""):
+    def __init__(self, name, name_alnum, id, cb, macro_dependency="", is_fabric_scoped=False):
         self.name = name
         self.name_alnum = name_alnum
         self.id = id
         self.cb = cb
         self.macro_dependency = macro_dependency
+        self.is_fabric_scoped = is_fabric_scoped
 
 
 class Cluster:
@@ -254,6 +256,7 @@ def get_clusters_from_xml(cluster_xml_file, config_yaml_file) -> list[Cluster]:
                             command_name = command.get("name")
                             command_name_alnum = "".join(char for char in command_name if char.isalnum())
                             command_cb = f"{cluster_name_alnum}{command_name_alnum}Callback"
+                            command_is_fabric_scoped = str(command.get("isFabricScoped", "false")).lower() == "true"
                             macro_dependency = ""
                             if command_name in macro_dependent_commands:
                                 macro_dependency = macro_dependent_commands[command_name]
@@ -264,6 +267,7 @@ def get_clusters_from_xml(cluster_xml_file, config_yaml_file) -> list[Cluster]:
                                     command_id,
                                     command_cb,
                                     macro_dependency=macro_dependency,
+                                    is_fabric_scoped=command_is_fabric_scoped,
                                 )
                             )
 
@@ -338,9 +342,20 @@ def generate_callback_functions(clusters, file):
         for command in cluster.commands:
             if command.macro_dependency:
                 file.write(f"\n#if {command.macro_dependency}")
+            decode_block = "    CHIP_ERROR error = Decode(tlv_data, command_data);\n"
+            if command.is_fabric_scoped:
+                decode_block = (
+                    "    chip::app::CommandHandler *command_obj = (chip::app::CommandHandler *)opaque_ptr;\n"
+                    "    CHIP_ERROR error = command_data.Decode(tlv_data, command_obj->GetAccessingFabricIndex());\n"
+                )
             file.write(
                 command_callback_impl_templ.format(
-                    command.cb, cluster.name_alnum, command.name_alnum, cluster.name_alnum, command.name_alnum
+                    command.cb,
+                    cluster.name_alnum,
+                    command.name_alnum,
+                    decode_block,
+                    cluster.name_alnum,
+                    command.name_alnum,
                 )
             )
             if command.macro_dependency:
