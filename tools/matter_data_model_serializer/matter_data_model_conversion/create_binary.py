@@ -248,6 +248,8 @@ def process_attribute(attribute, endpoint_id, cluster_id):
 
     if attribute["storage"] == "PERSIST":
         attribute_flags.append("ATTRIBUTE_FLAG_NONVOLATILE")
+    if attribute["storage"] == "CALLBACK":
+        attribute_flags.append("ATTRIBUTE_FLAG_MANAGED_INTERNALLY")
     if "NULLABLE" in attribute["definition"]["qualities"]:
         attribute_flags.append("ATTRIBUTE_FLAG_NULLABLE")
     if "WRITABLE" in attribute["qualities"]:
